@@ -1,4 +1,4 @@
-# ⚡ DataSpark 2.0: Enterprise AI Preprocessing Engine
+# ⚡ DataSpark 2.0: AI Preprocessing Engine
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104-009688?logo=fastapi)](https://fastapi.tiangolo.com/)
