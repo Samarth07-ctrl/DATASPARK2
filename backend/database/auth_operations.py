@@ -36,7 +36,7 @@ class AuthOperations:
     
     @staticmethod
     def create_user(db: Session, username: str, email: str, password: str,
-                   first_name: Optional[str] = None, last_name: Optional[str] = None) -> User:
+                       first_name: Optional[str] = None, last_name: Optional[str] = None) -> User:
         """Create a new user account"""
         try:
             # Check if user already exists
@@ -119,7 +119,7 @@ class AuthOperations:
     
     @staticmethod
     def create_session(db: Session, user_id: int, user_agent: Optional[str] = None,
-                      ip_address: Optional[str] = None) -> UserSession:
+                         ip_address: Optional[str] = None) -> UserSession:
         """Create a new user session"""
         try:
             # Generate tokens

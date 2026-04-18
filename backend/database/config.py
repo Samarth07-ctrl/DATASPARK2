@@ -5,7 +5,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 import logging
 
-# --- FIX 1: Import the one, true Base from your models file ---
+# --- Import the one, true Base from your models file ---
 from .models import Base 
 
 logger = logging.getLogger(__name__)
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 # Get the absolute path to the directory containing this config.py file
 current_dir = os.path.dirname(os.path.abspath(__file__))
 
-# Define the path to your database file.
+# Define the path to your database file (dataspark.db in the parent 'backend' folder)
 DATABASE_FILE_PATH = os.path.join(current_dir, '..', 'dataspark.db')
 
 # Update DATABASE_URL to use the absolute path
@@ -27,14 +27,11 @@ engine = create_engine(
         "timeout": 20                # 20 second timeout for database locks
     },
     poolclass=StaticPool, # Use StaticPool for SQLite with check_same_thread=False
-    echo=False  # Set to True for SQL debugging (useful for seeing queries)
+    echo=False   # Set to True for SQL debugging (useful for seeing queries)
 )
 
 # Create SessionLocal class - this is your factory for database sessions
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# --- FIX 2: We have REMOVED the line "Base = declarative_base()" from here ---
-# The correct Base is now imported from models.py
 
 # Dependency to get a database session for FastAPI routes
 def get_db():
@@ -70,4 +67,3 @@ def init_database():
     except Exception as e:
         logger.error(f"Failed to create database tables: {e}")
         return False
-

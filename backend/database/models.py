@@ -9,6 +9,7 @@ from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
 from datetime import datetime
 
+# This single Base is imported by config.py, making it the source of truth
 Base = declarative_base()
 
 class User(Base):
@@ -37,7 +38,7 @@ class User(Base):
 class UserPreferences(Base):
     __tablename__ = "user_preferences"
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), unique=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
     theme = Column(String(20), default="dark")
     notifications_enabled = Column(Boolean, default=True)
     auto_save_analyses = Column(Boolean, default=True)
@@ -88,6 +89,12 @@ class ColumnAnalysis(Base):
     suggestions = Column(JSON, nullable=False)
     recommended_action = Column(String(100))
     is_problematic = Column(Boolean, default=False)
+    
+    # --- ADDED THESE NEW FIELDS ---
+    ai_insights = Column(Text, nullable=True)
+    ai_recommendation = Column(String(100), nullable=True)
+    # --- END OF NEW FIELDS ---
+
     analysis_result = relationship("AnalysisResult", back_populates="column_analyses")
 
 class DataProcessingJob(Base):
@@ -124,7 +131,7 @@ class UsageAnalytics(Base):
     action_type = Column(String(50), nullable=False)
     file_upload_id = Column(Integer, ForeignKey("file_uploads.id", ondelete="SET NULL"))
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
-    event_details = Column(JSON)
+    event_details = Column(JSON) # Correctly named
     ip_address = Column(String(45))
     user_agent = Column(Text)
     user = relationship("User", back_populates="analytics")
@@ -149,8 +156,6 @@ class ImageDatasetJob(Base):
     image_count = Column(Integer)
     processing_status = Column(String(20), default="pending", index=True)
     actions_applied = Column(JSON)
-# AFTER THE FIX
-
     started_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime)
     error_message = Column(Text)

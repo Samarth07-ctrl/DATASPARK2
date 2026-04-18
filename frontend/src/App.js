@@ -1,14 +1,16 @@
-// File: frontend/src/App.js
-
 import React, { useState, useCallback, useMemo, useEffect, createContext, useContext } from 'react';
-import { BrowserRouter as Router, Routes, Route, Link, useNavigate, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Link, useNavigate, Navigate, useLocation } from 'react-router-dom';
 import { useDropzone } from 'react-dropzone';
 import {
-  UploadCloud, FileText, BarChart2, Zap, Download, Loader, X, ChevronDown,
-  AlertTriangle, Menu, Home, Upload, Brain, Shield, Cpu, Database,
-  ArrowRight, CheckCircle, TrendingUp, Users, Star, User, LogOut, LogIn,
-  UserPlus, Eye, EyeOff, Image
+  UploadCloud, FileText, BarChart2, Zap, Download, Loader, X,
+  AlertTriangle, Home, Upload, Brain, Cpu, Database,
+  ArrowRight, CheckCircle, TrendingUp, Star, User, LogOut, LogIn,
+  UserPlus, Eye, EyeOff, Image, Sparkles, Activity, CornerDownLeft
 } from 'lucide-react';
+import {
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend,
+  PieChart, Pie, Cell, Tooltip
+} from 'recharts';
 import './App.css';
 
 const API_URL = 'http://127.0.0.1:8000';
@@ -21,19 +23,34 @@ const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [token, setToken] = useState(localStorage.getItem('session_token'));
 
-  useEffect(() => {
-    if (token) {
-      fetchUserInfo();
-    } else {
-      setLoading(false);
+  // Wrap logout in useCallback
+  const logout = useCallback(async (isTokenInvalid = false) => {
+    try {
+      const currentToken = localStorage.getItem('session_token'); // Read fresh token
+      if (currentToken && !isTokenInvalid) {
+        await fetch(`${API_URL}/auth/logout`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${currentToken}`
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      setUser(null);
+      setToken(null);
+      localStorage.removeItem('session_token');
+      localStorage.removeItem('refresh_token');
     }
-  }, [token]);
+  }, []); // Empty dependency array, it doesn't depend on component state
 
-  const fetchUserInfo = async () => {
+  // Wrap fetchUserInfo in useCallback
+  const fetchUserInfo = useCallback(async (authToken) => {
     try {
       const response = await fetch(`${API_URL}/auth/me`, {
         headers: {
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${authToken}`
         }
       });
 
@@ -41,17 +58,26 @@ const AuthProvider = ({ children }) => {
         const userData = await response.json();
         setUser(userData);
       } else {
-        logout();
+        await logout(true); // Token is invalid, trigger logout
       }
     } catch (error) {
       console.error('Error fetching user info:', error);
-      logout();
+      await logout(true);
     } finally {
       setLoading(false);
     }
-  };
+  }, [logout]); // Add logout as a dependency
 
-  const login = async (credentials) => {
+  useEffect(() => {
+    if (token) {
+      fetchUserInfo(token);
+    } else {
+      setLoading(false);
+    }
+  }, [token, fetchUserInfo]);
+
+  // Wrap login in useCallback
+  const login = useCallback(async (credentials) => {
     try {
       const response = await fetch(`${API_URL}/auth/login`, {
         method: 'POST',
@@ -70,14 +96,15 @@ const AuthProvider = ({ children }) => {
         return { success: true };
       } else {
         const error = await response.json();
-        return { success: false, error: error.detail };
+        return { success: false, error: error.detail || 'Invalid credentials' };
       }
     } catch (error) {
-      return { success: false, error: 'Network error' };
+      return { success: false, error: 'Network error. Please try again.' };
     }
-  };
+  }, []); // Empty dependency array
 
-  const register = async (userData) => {
+  // Wrap register in useCallback
+  const register = useCallback(async (userData) => {
     try {
       const response = await fetch(`${API_URL}/auth/register`, {
         method: 'POST',
@@ -91,41 +118,22 @@ const AuthProvider = ({ children }) => {
         return { success: true };
       } else {
         const error = await response.json();
-        return { success: false, error: error.detail };
+        return { success: false, error: error.detail || 'Registration failed.' };
       }
     } catch (error) {
-      return { success: false, error: 'Network error' };
+      return { success: false, error: 'Network error. Please try again.' };
     }
-  };
+  }, []); // Empty dependency array
 
-  const logout = async () => {
-    try {
-      if (token) {
-        await fetch(`${API_URL}/auth/logout`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-      }
-    } catch (error) {
-      console.error('Logout error:', error);
-    } finally {
-      setUser(null);
-      setToken(null);
-      localStorage.removeItem('session_token');
-      localStorage.removeItem('refresh_token');
-    }
-  };
-
-  const value = {
+  // Memoize context value
+  const value = useMemo(() => ({
     user,
     token,
     login,
     register,
     logout,
     loading
-  };
+  }), [user, token, loading, login, register, logout]); // Add all functions to dependency array
 
   return (
     <AuthContext.Provider value={value}>
@@ -148,7 +156,7 @@ const ProtectedRoute = ({ children }) => {
 
   if (loading) {
     return (
-      <div className="loading-container">
+      <div className="loading-container centered-container">
         <div className="loading-animation">
           <div className="loading-spinner"></div>
           <div className="loading-dots">
@@ -163,7 +171,7 @@ const ProtectedRoute = ({ children }) => {
     );
   }
 
-  return user ? children : <Navigate to="/login" />;
+  return user ? children : <Navigate to="/login" replace />;
 };
 
 // Navbar Component
@@ -187,7 +195,7 @@ const Navbar = () => {
               </Link>
               <Link to="/upload" className="nav-link">
                 <Upload size={18} />
-                Upload
+                Upload CSV
               </Link>
               <Link to="/image-processing" className="nav-link">
                 <Image size={18} />
@@ -230,32 +238,32 @@ const HomePage = () => {
     {
       icon: <Brain size={32} />,
       title: "AI-Powered Analysis",
-      description: "Advanced machine learning algorithms automatically detect data quality issues and recommend optimal cleaning strategies."
+      description: "Our backend now uses the Gemini API to provide deep, contextual insights and recommendations for your data."
     },
     {
       icon: <Zap size={32} />,
       title: "Lightning Fast Processing",
-      description: "Process datasets of any size in seconds, not hours. Our optimized engine handles millions of rows effortlessly."
+      description: "Process datasets of any size in seconds. Our optimized FastAPI backend and Redis cache handle millions of rows."
     },
     {
-      icon: <Shield size={32} />,
-      title: "Enterprise Security",
-      description: "Bank-grade encryption and privacy protection ensure your sensitive data remains secure throughout the cleaning process."
+      icon: <Image size={32} />,
+      title: "Unified Platform",
+      description: "The only tool you need. Preprocess both tabular CSV data and complex image datasets in one seamless workflow."
     },
     {
       icon: <Cpu size={32} />,
       title: "Smart Automation",
-      description: "Intelligent automation reduces manual work by 90%, allowing you to focus on insights rather than data preparation."
+      description: "Intelligent automation reduces manual work, allowing you to focus on insights rather than data preparation."
     },
     {
       icon: <Database size={32} />,
-      title: "Format Flexibility",
-      description: "Support for CSV, Excel, JSON, and more. Import from databases, APIs, or file uploads with seamless compatibility."
+      title: "Robust Data Handling",
+      description: "Support for CSV, Excel, and ZIP (for images). We handle data ingestion and storage reliably with SQLAlchemy."
     },
     {
       icon: <BarChart2 size={32} />,
-      title: "Quality Insights",
-      description: "Comprehensive data quality reports with actionable insights and visualizations to understand your data better."
+      title: "Before vs. After",
+      description: "Our new analysis dashboard with Recharts provides a clear, visual comparison of your data quality before and after cleaning."
     }
   ];
 
@@ -267,7 +275,7 @@ const HomePage = () => {
             <div className="hero-content">
               <div className="hero-badge">
                 <Star size={16} />
-                Trusted by 10,000+ Data Professionals
+                Powered by Gemini & Scikit-learn
               </div>
               
               <h1 className="hero-title">
@@ -323,11 +331,11 @@ const HomePage = () => {
                 <div className="dashboard-content-preview">
                   <div className="preview-chart">
                     <div className="chart-bars">
-                      <div className="bar" style={{height: '60%'}}></div>
-                      <div className="bar" style={{height: '80%'}}></div>
-                      <div className="bar" style={{height: '100%'}}></div>
-                      <div className="bar" style={{height: '45%'}}></div>
-                      <div className="bar" style={{height: '75%'}}></div>
+                      <div className="bar" style={{height: '60%', '--height': '60%'}}></div>
+                      <div className="bar" style={{height: '80%', '--height': '80%'}}></div>
+                      <div className="bar" style={{height: '100%', '--height': '100%'}}></div>
+                      <div className="bar" style={{height: '45%', '--height': '45%'}}></div>
+                      <div className="bar" style={{height: '75%', '--height': '75%'}}></div>
                     </div>
                   </div>
                   <div className="preview-metrics">
@@ -504,6 +512,7 @@ const RegisterPage = () => {
   const [success, setSuccess] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const { register } = useAuth();
+  const navigate = useNavigate();
 
   const handleChange = (e) => {
     setFormData({
@@ -522,7 +531,7 @@ const RegisterPage = () => {
     if (result.success) {
       setSuccess(true);
       setTimeout(() => {
-        window.location.href = '/login';
+        navigate('/login');
       }, 2000);
     } else {
       setError(result.error);
@@ -697,7 +706,7 @@ const Dashboard = () => {
 
   if (loading) {
     return (
-      <div className="loading-container">
+      <div className="loading-container centered-container">
         <div className="loading-animation">
           <div className="loading-spinner"></div>
           <div className="loading-dots">
@@ -729,7 +738,7 @@ const Dashboard = () => {
       <div className="app-container">
         <div className="dashboard-header">
           <div>
-            <h1 className="dashboard-title">Welcome back, {user.first_name || user.username}!</h1>
+            <h1 className="dashboard-title">Welcome back, {user?.first_name || user?.username}!</h1>
             <p className="dashboard-subtitle">Here's your data cleaning activity</p>
           </div>
           <Link to="/upload" className="dashboard-upload-btn">
@@ -742,12 +751,12 @@ const Dashboard = () => {
           <StatCard
             icon={<FileText size={24} />}
             title="Total Uploads"
-            value={uploadHistory.length}
+            value={analytics.total_uploads || 0}
           />
           <StatCard
             icon={<TrendingUp size={24} />}
             title="Success Rate"
-            value={`${analytics.success_rate || 0}%`}
+            value={`${analytics.success_rate || 100}%`}
           />
           <StatCard
             icon={<Zap size={24} />}
@@ -755,9 +764,9 @@ const Dashboard = () => {
             value={analytics.total_processing_jobs || 0}
           />
           <StatCard
-            icon={<Users size={24} />}
+            icon={<CheckCircle size={24} />}
             title="Data Quality"
-            value="Excellent"
+            value={(analytics.success_rate || 100) > 95 ? "Excellent" : "Good"}
           />
         </div>
 
@@ -770,9 +779,9 @@ const Dashboard = () => {
                   <div key={upload.id} className="history-item">
                     <div className="history-item-info">
                       <h3>{upload.filename}</h3>
-                      <p>{upload.row_count} rows, {upload.column_count} columns</p>
+                      <p>{upload.row_count || 'N/A'} rows, {upload.column_count || 'N/A'} columns</p>
                       <div className="history-item-date">
-                        {new Date(upload.upload_timestamp).toLocaleDateString()}
+                        {new Date(upload.upload_timestamp).toLocaleString()}
                       </div>
                     </div>
                     <div className={`history-item-status ${upload.status}`}>
@@ -805,8 +814,9 @@ const UploadPage = () => {
   const [processingActions, setProcessingActions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const { token } = useAuth();
+  const navigate = useNavigate();
 
-  // File upload handling
   const onDrop = useCallback(async (acceptedFiles) => {
     const file = acceptedFiles[0];
     if (!file) return;
@@ -818,7 +828,6 @@ const UploadPage = () => {
       const formData = new FormData();
       formData.append('file', file);
 
-      const token = localStorage.getItem('session_token');
       const response = await fetch(`${API_URL}/analyze`, {
         method: 'POST',
         headers: {
@@ -828,17 +837,23 @@ const UploadPage = () => {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to analyze file');
+        const errData = await response.json();
+        throw new Error(errData.detail || 'Failed to analyze file');
       }
 
       const data = await response.json();
       setAnalysisData(data);
+      // Auto-populate actions based on AI recommendation
+      const autoActions = data.column_analysis
+        .filter(col => col.ai_recommendation && col.ai_recommendation !== 'no_action')
+        .map(col => ({ column: col.column_name, action: col.ai_recommendation }));
+      setProcessingActions(autoActions);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [token]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -850,24 +865,47 @@ const UploadPage = () => {
 
   const addAction = (column, action) => {
     const newAction = { column, action };
-    setProcessingActions(prev => [...prev, newAction]);
+    setProcessingActions(prev => {
+      // Find if an action for this column already exists
+      const existingIndex = prev.findIndex(a => a.column === column);
+      
+      if (action === "no_action") {
+        // If "No Action" is selected, remove any existing action for this column
+        return prev.filter(a => a.column !== column);
+      }
+      
+      if (existingIndex > -1) {
+        // If an action exists, update it
+        const updatedActions = [...prev];
+        updatedActions[existingIndex] = newAction;
+        return updatedActions;
+      }
+      
+      // If no action exists, add it
+      return [...prev, newAction];
+    });
   };
 
-  const removeAction = (index) => {
-    setProcessingActions(prev => prev.filter((_, i) => i !== index));
+  const removeAction = (columnName) => {
+    setProcessingActions(prev => prev.filter(a => a.column !== columnName));
+    // Manually reset the dropdown value in the DOM (this is a small hack)
+    const select = document.getElementById(`select-${columnName}`);
+    if(select) {
+      select.value = "no_action";
+    }
   };
 
   const processData = async () => {
     if (processingActions.length === 0) {
-      setError('Please select at least one action to perform');
-      return;
+       // Allow processing even with no actions, to get the "Before" vs "After" (which will be identical)
+       // setError('Please select at least one action to perform');
+       // return;
     }
 
     setLoading(true);
     setError('');
 
     try {
-      const token = localStorage.getItem('session_token');
       const response = await fetch(`${API_URL}/process`, {
         method: 'POST',
         headers: {
@@ -875,26 +913,22 @@ const UploadPage = () => {
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
-          data: [], // This would be populated with actual data
-          actions: processingActions,
+          actions: processingActions, // Send only the selected actions
           file_id: analysisData.file_id
         }),
       });
 
       if (!response.ok) {
-        throw new Error('Failed to process data');
+        const errData = await response.json();
+        throw new Error(errData.detail || 'Failed to process data');
       }
 
-      // Handle file download
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.style.display = 'none';
-      a.href = url;
-      a.download = `cleaned_${analysisData.filename}`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
+      // Handle the new JSON response for the dashboard
+      const dashboardData = await response.json();
+      
+      // Navigate to the new dashboard page with the data
+      navigate('/dashboard/analysis', { state: { analysisData: dashboardData, filename: analysisData.filename } });
+
     } catch (err) {
       setError(err.message);
     } finally {
@@ -908,6 +942,7 @@ const UploadPage = () => {
     setError('');
   };
 
+  // StatCard definition for local use in this component
   const StatCard = ({ title, value }) => (
     <div className="stat-card">
       <div className="stat-title">{title}</div>
@@ -918,61 +953,74 @@ const UploadPage = () => {
   return (
     <div className="upload-page">
       <div className="upload-container">
-        <div className="upload-header">
-          <h1 className="main-title">Upload & Clean Your Data</h1>
-          <p className="subtitle">
-            Transform your raw data into clean, analysis-ready datasets with AI-powered intelligence.
-          </p>
-        </div>
-
-        {!analysisData ? (
-          <div className="dropzone-container">
-            <div
-              {...getRootProps()}
-              className={`dropzone ${isDragActive ? 'active' : ''}`}
-            >
-              <input {...getInputProps()} />
-              <div className="dropzone-content">
-                <div className="dropzone-icon">
-                  <UploadCloud size={64} />
-                  <div className="upload-pulse"></div>
+        
+        {!analysisData && !loading && (
+          <>
+            <div className="upload-header">
+              <h1 className="main-title">Upload & Clean Your Data</h1>
+              <p className="subtitle">
+                Transform your raw data into clean, analysis-ready datasets with AI-powered intelligence.
+              </p>
+            </div>
+            <div className="dropzone-container">
+              <div
+                {...getRootProps()}
+                className={`dropzone ${isDragActive ? 'active' : ''}`}
+              >
+                <input {...getInputProps()} />
+                <div className="dropzone-content">
+                  <div className="dropzone-icon">
+                    <UploadCloud size={64} />
+                    <div className="upload-pulse"></div>
+                  </div>
+                  {isDragActive ? (
+                    <div className="dropzone-text">
+                      <h3>Drop your file here</h3>
+                      <p>Release to start processing</p>
+                    </div>
+                  ) : (
+                    <div className="dropzone-text">
+                      <h3>Drag & drop your CSV file here</h3>
+                      <p>or click to browse your files</p>
+                    </div>
+                  )}
                 </div>
-                {loading ? (
-                  <div className="upload-status">
-                    <Loader className="spinner" size={24} />
-                    <h3 className="dropzone-text-main">Analyzing your data...</h3>
-                    <p className="dropzone-text-sub">Our AI is processing your dataset</p>
-                  </div>
-                ) : isDragActive ? (
-                  <div className="dropzone-text">
-                    <h3 className="dropzone-text-main">Drop your file here</h3>
-                    <p className="dropzone-text-sub">Release to start processing</p>
-                  </div>
-                ) : (
-                  <div className="dropzone-text">
-                    <h3 className="dropzone-text-main">Drag &amp; drop your CSV file here</h3>
-                    <p className="dropzone-text-sub">or click to browse your files</p>
-                  </div>
-                )}
               </div>
-            </div>
 
-            <div className="upload-features">
-              <div className="upload-feature">
-                <CheckCircle size={16} />
-                <span>Secure & Private</span>
-              </div>
-              <div className="upload-feature">
-                <CheckCircle size={16} />
-                <span>AI-Powered Analysis</span>
-              </div>
-              <div className="upload-feature">
-                <CheckCircle size={16} />
-                <span>Instant Results</span>
+              <div className="upload-features">
+                <div className="upload-feature">
+                  <CheckCircle size={16} />
+                  <span>Secure & Private</span>
+                </div>
+                <div className="upload-feature">
+                  <CheckCircle size={16} />
+                  <span>AI-Powered Analysis</span>
+                </div>
+                <div className="upload-feature">
+                  <CheckCircle size={16} />
+                  <span>Instant Results</span>
+                </div>
               </div>
             </div>
+          </>
+        )}
+
+        {loading && !analysisData && (
+          <div className="centered-container">
+            <div className="loading-animation">
+              <div className="loading-spinner"></div>
+              <div className="loading-dots">
+                <div className="dot"></div>
+                <div className="dot"></div>
+                <div className="dot"></div>
+              </div>
+            </div>
+            <h2 className="loading-title">Our AI is examining your dataset...</h2>
+            <p className="loading-subtitle">This may take a moment for large files. Please wait.</p>
           </div>
-        ) : (
+        )}
+
+        {analysisData && (
           <div className="dashboard-container">
             <div className="stats-grid">
               <StatCard title="Rows" value={analysisData.row_count.toLocaleString()} />
@@ -984,10 +1032,10 @@ const UploadPage = () => {
             <div className="analysis-layout">
               <div className="column-details-panel">
                 <div className="panel-header">
-                  <h3>Column Analysis</h3>
+                  <h3>AI Column Analysis</h3>
                   <button onClick={resetUpload} className="reset-button">
                     <X size={16} />
-                    Reset
+                    Upload New File
                   </button>
                 </div>
                 
@@ -1008,6 +1056,12 @@ const UploadPage = () => {
                               <strong>{col.column_name}</strong>
                               <small>{col.data_type} | {col.unique_values} unique</small>
                             </div>
+                            {col.ai_insights && (
+                              <div className="ai-insight-box">
+                                <Sparkles size={14} />
+                                <strong>AI Insight:</strong> {col.ai_insights}
+                              </div>
+                            )}
                           </td>
                           <td>
                             <span className={`missing-percentage ${col.missing_percentage > 50 ? 'high' : col.missing_percentage > 20 ? 'medium' : 'low'}`}>
@@ -1015,15 +1069,17 @@ const UploadPage = () => {
                             </span>
                           </td>
                           <td>
-                            {col.suggestions.length > 0 ? (
+                            {(col.suggestions.length > 0 || col.ai_recommendation) ? (
                               <select
-                                onChange={(e) => e.target.value && addAction(col.column_name, e.target.value)}
-                                defaultValue=""
+                                id={`select-${col.column_name}`} // ID for resetting
+                                onChange={(e) => addAction(col.column_name, e.target.value)}
+                                value={processingActions.find(a => a.column === col.column_name)?.action || col.recommended_action || "no_action"}
                               >
-                                <option value="">Select action...</option>
+                                <option value="no_action">No Action</option>
                                 {col.suggestions.map((suggestion, i) => (
                                   <option key={i} value={suggestion}>
                                     {suggestion.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                                    {suggestion === col.ai_recommendation && ' (AI Rec)'}
                                   </option>
                                 ))}
                               </select>
@@ -1047,9 +1103,9 @@ const UploadPage = () => {
                     {processingActions.map((action, index) => (
                       <div key={index} className="action-item">
                         <span>
-                          <strong>{action.column}</strong>: {action.action.replace(/_/g, ' ')}
+                          <strong>{action.column}</strong>: {action.action.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
                         </span>
-                        <button onClick={() => removeAction(index)} className="remove-action">
+                        <button onClick={() => removeAction(action.column)} className="remove-action">
                           <X size={16} />
                         </button>
                       </div>
@@ -1068,7 +1124,7 @@ const UploadPage = () => {
                     ) : (
                       <>
                         <Zap size={16} />
-                        Process Data
+                        Process & View Dashboard
                       </>
                     )}
                   </button>
@@ -1078,8 +1134,25 @@ const UploadPage = () => {
               {processingActions.length === 0 && (
                 <div className="no-actions">
                   <Zap size={48} />
-                  <h3>Select actions to get started.</h3>
-                  <p>Choose cleaning actions from the dropdown menus above to prepare your data.</p>
+                  <h3>No actions selected.</h3>
+                  <p>Our AI has not flagged any critical issues. You can select actions from the dropdowns above or click Process to see the dashboard.</p>
+                  <button
+                    onClick={processData}
+                    disabled={loading}
+                    className="process-button"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader className="spinner" size={16} />
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <BarChart2 size={16} />
+                        View Dashboard Anyway
+                      </>
+                    )}
+                  </button>
                 </div>
               )}
             </div>
@@ -1090,30 +1163,9 @@ const UploadPage = () => {
           <div className="error-container">
             <AlertTriangle size={24} />
             <p>{error}</p>
-          </div>
-        )}
-
-        {loading && !analysisData && (
-          <div className="centered-container">
-            <div className="loading-animation">
-              <div className="loading-spinner"></div>
-              <div className="loading-dots">
-                <div className="dot"></div>
-                <div className="dot"></div>
-                <div className="dot"></div>
-              </div>
-            </div>
-            <h2 className="loading-title">Our AI is examining your dataset for quality issues</h2>
-            <p className="loading-subtitle">This usually takes a few seconds</p>
-          </div>
-        )}
-
-        {error && (
-          <div className="error-container">
-            <AlertTriangle size={48} />
-            <div>
-              <h3>**Analysis Error:** {error}</h3>
-            </div>
+            <button onClick={resetUpload} className="error-retry-button">
+              Try Again
+            </button>
           </div>
         )}
       </div>
@@ -1121,9 +1173,241 @@ const UploadPage = () => {
   );
 };
 
+// --- NEW "Before vs After" Analysis Dashboard Component ---
+const AnalysisDashboard = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { token } = useAuth();
+  const [isDownloading, setIsDownloading] = useState(false);
+  
+  // --- FIX: All hooks are now at the TOP level ---
+  const analysisData = useMemo(() => location.state?.analysisData?.analysis, [location.state]);
+  const jobId = useMemo(() => location.state?.analysisData?.job_id, [location.state]);
+  const filename = useMemo(() => location.state?.filename || 'processed_file', [location.state]);
+  
+  const { before = [], after = [] } = analysisData || {};
+
+  const beforeChartData = useMemo(() => {
+    return before.map(col => ({ name: col.name, Missing: col.missing, Outliers: col.outliers }));
+  }, [before]);
+
+  const afterChartData = useMemo(() => {
+    return after.map(col => ({ name: col.name, Missing: col.missing, Outliers: col.outliers }));
+  }, [after]);
+
+  const pieData = useMemo(() => {
+    if (!analysisData) return [];
+    const beforeMissing = before.reduce((acc, col) => acc + col.missing, 0);
+    const afterMissing = after.reduce((acc, col) => acc + col.missing, 0);
+    const beforeOutliers = before.reduce((acc, col) => acc + col.outliers, 0);
+    const afterOutliers = after.reduce((acc, col) => acc + col.outliers, 0);
+
+    return [
+      { name: 'Missing (Before)', value: beforeMissing, fill: '#EF4444' },
+      { name: 'Missing (After)', value: afterMissing, fill: '#10B981' },
+      { name: 'Outliers (Before)', value: beforeOutliers, fill: '#F59E0B' },
+      { name: 'Outliers (After)', value: afterOutliers, fill: '#3B82F6' },
+    ].filter(entry => entry.value > 0); // Filter out zero-value entries for a cleaner pie chart
+  }, [analysisData, before, after]);
+
+  const meanMedianData = useMemo(() => {
+    // Show only columns that exist BOTH before and after and are numeric
+    const afterNumericCols = after.filter(d => d.mean !== null).map(d => d.name);
+    return after.filter(col => col.mean !== null && before.find(b => b.name === col.name && b.mean !== null));
+  }, [after, before]);
+
+  // --- FIX: This logic must come AFTER all hooks ---
+  useEffect(() => {
+    if (!analysisData) {
+      // If no data, send back to upload
+      navigate('/upload', { replace: true });
+    }
+  }, [analysisData, navigate]);
+
+  const downloadFile = async () => {
+    if (!jobId) return;
+    setIsDownloading(true);
+    try {
+      const response = await fetch(`${API_URL}/download/job/${jobId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      if (!response.ok) throw new Error('Download failed');
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      
+      const disposition = response.headers.get('content-disposition');
+      let downloadFilename = `cleaned_${filename}`;
+      if (disposition && disposition.indexOf('attachment') !== -1) {
+        const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
+        const matches = filenameRegex.exec(disposition);
+        if (matches != null && matches[1]) {
+          downloadFilename = matches[1].replace(/['"]/g, '');
+        }
+      }
+      a.download = downloadFilename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Download error:", error);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  if (!analysisData) {
+    // This loading state will show while redirecting
+    return (
+      <div className="loading-container centered-container">
+        <div className="loading-animation">
+          <div className="loading-spinner"></div>
+        </div>
+        <h2 className="loading-title">Loading Analysis...</h2>
+      </div>
+    );
+  }
+  
+  const totalMissingBefore = before.reduce((acc, col) => acc + col.missing, 0);
+  const totalMissingAfter = after.reduce((acc, col) => acc + col.missing, 0);
+  const totalOutliersBefore = before.reduce((acc, col) => acc + col.outliers, 0);
+  const totalOutliersAfter = after.reduce((acc, col) => acc + col.outliers, 0);
+  
+  // --- FIX: Added local StatCard definition ---
+  const StatCard = ({ icon, title, value, unit }) => (
+    <div className="stat-card">
+      <div className="stat-icon">
+        {icon}
+      </div>
+      <div>
+        <div className="stat-title">{title}</div>
+        <div className="stat-value">{value} {unit}</div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="analysis-dashboard-page">
+      <div className="app-container">
+        <div className="dashboard-header">
+          <div>
+            <h1 className="dashboard-title">Processing Complete: Before vs. After</h1>
+            <p className="dashboard-subtitle">Visual impact report for <strong>{filename}</strong></p>
+          </div>
+          <div className="dashboard-actions">
+            <Link to="/upload" className="btn btn-secondary">
+              <CornerDownLeft size={20} />
+              Process Another File
+            </Link>
+            <button onClick={downloadFile} disabled={isDownloading} className="btn btn-primary">
+              {isDownloading ? <Loader size={20} className="spinner" /> : <Download size={20} />}
+              {isDownloading ? 'Downloading...' : 'Download Cleaned CSV'}
+            </button>
+          </div>
+        </div>
+
+        <div className="stats-grid">
+          <StatCard
+            icon={<AlertTriangle size={24} className="icon-red" />}
+            title="Missing Values (Before)"
+            value={totalMissingBefore.toLocaleString()}
+          />
+          <StatCard
+            icon={<CheckCircle size={24} className="icon-green" />}
+            title="Missing Values (After)"
+            value={totalMissingAfter.toLocaleString()}
+            unit={totalMissingBefore > totalMissingAfter ? `(${((totalMissingBefore - totalMissingAfter) / totalMissingBefore * 100).toFixed(0)}% ↓)` : ''}
+          />
+          <StatCard
+            icon={<Activity size={24} className="icon-yellow" />}
+            title="Outliers Detected (Before)"
+            value={totalOutliersBefore.toLocaleString()}
+          />
+          <StatCard
+            icon={<CheckCircle size={24} className="icon-green" />}
+            title="Outliers Handled (After)"
+            value={totalOutliersAfter.toLocaleString()}
+            unit={totalOutliersBefore > totalOutliersAfter ? `(${((totalOutliersBefore - totalOutliersAfter) / totalOutliersBefore * 100).toFixed(0)}% ↓)` : ''}
+          />
+        </div>
+
+        <div className="chart-grid">
+          <div className="chart-container-large">
+            <h3 className="chart-title">Data Quality: Before Processing</h3>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={beforeChartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                <XAxis dataKey="name" stroke="#94a3b8" />
+                <YAxis stroke="#94a3b8" />
+                <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #334155' }} />
+                <Legend />
+                <Bar dataKey="Missing" fill="#EF4444" />
+                <Bar dataKey="Outliers" fill="#F59E0B" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          
+          <div className="chart-container-large">
+            <h3 className="chart-title">Data Quality: After Processing</h3>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={afterChartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                <XAxis dataKey="name" stroke="#94a3b8" />
+                <YAxis stroke="#94a3b8" />
+                <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #334155' }} />
+                <Legend />
+                <Bar dataKey="Missing" fill="#10B981" />
+                <Bar dataKey="Outliers" fill="#3B82F6" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="chart-grid">
+          <div className="chart-container-small">
+            <h3 className="chart-title">Total Issues Comparison</h3>
+             <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label>
+                  {pieData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.fill} />
+                  ))}
+                </Pie>
+                <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #334155' }} />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="chart-container-small">
+            <h3 className="chart-title">Mean vs. Median (After)</h3>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={meanMedianData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                <XAxis dataKey="name" stroke="#94a3b8" />
+                <YAxis stroke="#94a3b8" />
+                <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #334155' }} />
+                <Legend />
+                <Bar dataKey="mean" fill="#8B5CF6" />
+                <Bar dataKey="median" fill="#EC4899" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+};
+
 // Image Processing Component
 const ImageProcessing = () => {
-  const { user, token } = useAuth();
+  const { token } = useAuth();
   const [currentStep, setCurrentStep] = useState('upload');
   const [analysisData, setAnalysisData] = useState(null);
   const [processingActions, setProcessingActions] = useState([]);
@@ -1154,7 +1438,8 @@ const ImageProcessing = () => {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to analyze image dataset');
+        const errData = await response.json();
+        throw new Error(errData.detail || 'Failed to analyze image dataset');
       }
 
       const data = await response.json();
@@ -1183,6 +1468,36 @@ const ImageProcessing = () => {
     setProcessingActions(prev => prev.filter((_, i) => i !== index));
   };
 
+  // Memoized checkJobStatus
+  const checkJobStatus = useCallback(async (jobId) => {
+    if (!jobId || !token) return;
+  
+    try {
+      const response = await fetch(`${API_URL}/images/jobs/${jobId}/status`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+  
+      if (!response.ok) {
+        throw new Error('Failed to check job status');
+      }
+  
+      const status = await response.json();
+      setJobStatus(status);
+  
+      if (status.status === 'processing') {
+        setTimeout(() => checkJobStatus(jobId), 3000); // Poll every 3 seconds
+      } else if (status.status === 'completed') {
+        setCurrentStep('completed');
+      } else if (status.status === 'failed') {
+        setError(status.error || 'Processing failed');
+      }
+    } catch (err) {
+      setError(err.message);
+    }
+  }, [token]); // Removed analysisData from dependencies
+
   const startProcessing = async () => {
     if (processingActions.length === 0) {
       setError('Please add at least one processing action');
@@ -1209,8 +1524,9 @@ const ImageProcessing = () => {
         throw new Error('Failed to start processing');
       }
 
+      const data = await response.json();
       setCurrentStep('processing');
-      checkJobStatus();
+      checkJobStatus(data.job_id); // Pass job_id directly
     } catch (err) {
       setError(err.message);
     } finally {
@@ -1218,32 +1534,6 @@ const ImageProcessing = () => {
     }
   };
 
-  const checkJobStatus = async () => {
-    try {
-      const response = await fetch(`${API_URL}/images/jobs/${analysisData.job_id}/status`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to check job status');
-      }
-
-      const status = await response.json();
-      setJobStatus(status);
-
-      if (status.status === 'processing') {
-        setTimeout(checkJobStatus, 2000);
-      } else if (status.status === 'completed') {
-        setCurrentStep('completed');
-      } else if (status.status === 'failed') {
-        setError(status.error || 'Processing failed');
-      }
-    } catch (err) {
-      setError(err.message);
-    }
-  };
 
   const downloadProcessedDataset = async () => {
     try {
@@ -1326,7 +1616,7 @@ const ImageProcessing = () => {
         return (
           <input
             type="number"
-            placeholder={param === 'radius' ? '2' : '800'}
+            placeholder={param === 'radius' ? '2' : '256'}
             value={value}
             onChange={(e) => setActionParams(prev => ({ ...prev, [param]: e.target.value }))}
             className="form-input"
@@ -1400,7 +1690,7 @@ const ImageProcessing = () => {
                   <div className="dropzone-text">
                     <h3>Drag & drop your ZIP file here</h3>
                     <p>or click to browse your files</p>
-                    <small>Supported formats: PNG, JPG, JPEG</small>
+                    <small>Supported formats: PNG, JPG, JPEG inside a ZIP</small>
                   </div>
                 )}
               </div>
@@ -1615,6 +1905,7 @@ const ImageProcessing = () => {
   );
 };
 
+
 // Main App Component
 const App = () => {
   return (
@@ -1626,9 +1917,18 @@ const App = () => {
             <Route path="/" element={<HomePage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
-            <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-            <Route path="/upload" element={<ProtectedRoute><UploadPage /></ProtectedRoute>} />
-            <Route path="/image-processing" element={<ProtectedRoute><ImageProcessing /></ProtectedRoute>} />
+            <Route path="/dashboard" element={
+              <ProtectedRoute><Dashboard /></ProtectedRoute>
+            } />
+            <Route path="/upload" element={
+              <ProtectedRoute><UploadPage /></ProtectedRoute>
+            } />
+            <Route path="/image-processing" element={
+              <ProtectedRoute><ImageProcessing /></ProtectedRoute>
+            } />
+            <Route path="/dashboard/analysis" element={
+              <ProtectedRoute><AnalysisDashboard /></ProtectedRoute>
+            } />
           </Routes>
         </div>
       </Router>
