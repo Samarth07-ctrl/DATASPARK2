@@ -1,0 +1,51 @@
+# ==============================================================================
+# Docker Compose — Orchestrates frontend + backend as a single stack
+# ==============================================================================
+# Usage:
+#   docker-compose up --build        # Build and start both services
+#   docker-compose up -d             # Run in detached mode
+#   docker-compose down              # Stop and remove containers
+#
+# The backend's .env file is mounted as env_file so GEMINI_API_KEY is available
+# without baking secrets into the Docker image.
+# ==============================================================================
+
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: dataspark-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    volumes:
+      # Persist uploaded files and the SQLite database across container restarts
+      - backend_uploads_csv:/app/uploaded_csv_files
+      - backend_uploads_images:/app/uploaded_image_datasets
+      - backend_db:/app
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        REACT_APP_API_URL: http://localhost:8000
+    container_name: dataspark-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  backend_uploads_csv:
+  backend_uploads_images:
+  backend_db:

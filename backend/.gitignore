@@ -1,0 +1,7 @@
+# Ignore uploaded data and databases
+uploaded_csv_files/
+uploaded_image_datasets/
+dataspark.db
+__pycache__/
+*.pyc
+.env
