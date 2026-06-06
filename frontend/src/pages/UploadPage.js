@@ -455,7 +455,7 @@ const UploadPage = () => {
               </div>
 
               {/* === Feature 3: Target Variable & Imbalance Detection === */}
-              {objective === 'machine_learning' && (
+              {analysisData && (
                 <div className="imbalance-panel">
                   <div className="panel-header">
                     <h3><Scale size={18} /> Target Variable & Class Balance</h3>
@@ -464,7 +464,7 @@ const UploadPage = () => {
                     <div className="context-select-group">
                       <label className="context-label" htmlFor="target-column-select">
                         <Target size={14} />
-                        Select Target Column
+                        Select Target Column (for imbalance detection)
                       </label>
                       <div className="context-select-wrapper">
                         <select

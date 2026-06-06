@@ -109,9 +109,7 @@ async def startup_event():
 security = HTTPBearer()
 
 origins = [
-    "http://localhost",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
+    "*"
 ]
 
 app.add_middleware(
@@ -562,9 +560,13 @@ def get_column_stats_polars(df_pl: pl.DataFrame, column_name: str) -> ColumnStat
                 q3 = non_null.quantile(0.75)
                 if q1 is not None and q3 is not None:
                     iqr = q3 - q1
-                    lower = q1 - 1.5 * iqr
-                    upper = q3 + 1.5 * iqr
-                    outliers = int(((col < lower) | (col > upper)).sum())
+                    # FIX: When IQR=0 (binary/constant columns like one-hot encoded),
+                    # bounds collapse to [Q1, Q3] and EVERY minority value becomes an
+                    # "outlier". This inflated counts 10x. Skip when IQR=0.
+                    if iqr > 0:
+                        lower = q1 - 1.5 * iqr
+                        upper = q3 + 1.5 * iqr
+                        outliers = int(((non_null < lower) | (non_null > upper)).sum())
             mean = _safe_scalar(col.mean())
             median = _safe_scalar(col.median())
         except Exception as e:
@@ -589,13 +591,18 @@ def get_column_stats(df: pd.DataFrame, column_name: str) -> ColumnStats:
 
     if np.issubdtype(col.dtype, np.number):
         try:
-            if not col.dropna().empty:
-                Q1 = col.quantile(0.25)
-                Q3 = col.quantile(0.75)
+            non_null = col.dropna()
+            if not non_null.empty:
+                Q1 = non_null.quantile(0.25)
+                Q3 = non_null.quantile(0.75)
                 IQR = Q3 - Q1
-                lower_bound = Q1 - 1.5 * IQR
-                upper_bound = Q3 + 1.5 * IQR
-                outliers = int(((col < lower_bound) | (col > upper_bound)).sum())
+                # FIX: When IQR=0 (binary/constant columns like one-hot encoded),
+                # bounds collapse to [Q1, Q3] and EVERY minority value becomes an
+                # "outlier". Skip when IQR=0 — no meaningful outlier detection possible.
+                if IQR > 0:
+                    lower_bound = Q1 - 1.5 * IQR
+                    upper_bound = Q3 + 1.5 * IQR
+                    outliers = int(((non_null < lower_bound) | (non_null > upper_bound)).sum())
             mean = float(col.mean())
             median = float(col.median())
         except Exception as e:
@@ -626,20 +633,26 @@ def _compute_missing_matrix(df: pd.DataFrame) -> Optional[MissingMatrix]:
     """
     Returns a binary matrix of null positions for a sampled subset of rows.
     Used to render a "missing values heatmap" on the frontend.
-    WHY SAMPLE? A 100k-row dataset → 100k × N matrix is too large.
-    50 evenly-spaced rows capture the null *pattern* without bloating the payload.
     """
     try:
         total_rows = len(df)
         if total_rows == 0:
             return None
 
-        # Evenly-spaced sampling to capture distribution of nulls
         if total_rows <= MAX_HEATMAP_ROWS:
             sample_df = df
         else:
-            indices = np.linspace(0, total_rows - 1, MAX_HEATMAP_ROWS, dtype=int)
-            sample_df = df.iloc[indices]
+            # FIX: Prioritize rows with missing values for the demo visualization
+            # 1. Calculate the number of nulls per row
+            null_counts = df.isnull().sum(axis=1)
+            
+            # 2. Sort descending so rows with the MOST nulls are at the top, then grab 50
+            sample_df = (
+                df.assign(null_count=null_counts)
+                .sort_values('null_count', ascending=False)
+                .head(MAX_HEATMAP_ROWS)
+                .drop('null_count', axis=1)
+            )
 
         # Build binary matrix: 1 = missing, 0 = present
         null_matrix = sample_df.isnull().astype(int).values.tolist()

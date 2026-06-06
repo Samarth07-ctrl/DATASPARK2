@@ -2,14 +2,15 @@
 // File: frontend/src/pages/AnalysisDashboard.js
 // Purpose: "Before vs After" visual report with Recharts + custom heatmaps.
 //          Includes: Missing Values Heatmap, Distribution Histograms,
-//          Correlation Matrix, and original stat/chart comparisons.
+//          Correlation Matrix, original stat/chart comparisons,
+//          and PDF report download.
 // ==============================================================================
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   Download, Loader, AlertTriangle, CheckCircle, Activity, CornerDownLeft,
-  Grid3X3, BarChart3, GitBranch, ChevronLeft, ChevronRight
+  Grid3X3, BarChart3, GitBranch, ChevronLeft, ChevronRight, FileText
 } from 'lucide-react';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend,
@@ -19,9 +20,9 @@ import { useAuth } from '../context/AuthContext';
 import { API_URL } from '../config/api';
 
 // =============================================================================
-// SUB-COMPONENT: Missing Values Heatmap
+// SUB-COMPONENT: Missing Values Heatmap (memoized for perf)
 // =============================================================================
-const MissingValuesHeatmap = ({ dataBefore, dataAfter }) => {
+const MissingValuesHeatmap = React.memo(({ dataBefore, dataAfter }) => {
   const [showAfter, setShowAfter] = useState(false);
   const active = showAfter ? dataAfter : dataBefore;
 
@@ -53,7 +54,7 @@ const MissingValuesHeatmap = ({ dataBefore, dataAfter }) => {
       <p className="viz-card-subtitle">
         {showAfter ? 'Post-processing' : 'Raw data'} — {active.sampled_rows} sampled from {active.total_rows.toLocaleString()} rows
       </p>
-      <div className="heatmap-scroll-container">
+      <div className="heatmap-scroll-container" style={{ willChange: 'transform' }}>
         <div className="heatmap-grid" style={{
           gridTemplateColumns: `80px repeat(${cols.length}, 1fr)`,
         }}>
@@ -90,12 +91,12 @@ const MissingValuesHeatmap = ({ dataBefore, dataAfter }) => {
       </div>
     </div>
   );
-};
+});
 
 // =============================================================================
-// SUB-COMPONENT: Distribution Histograms (Before vs After)
+// SUB-COMPONENT: Distribution Histograms (Before vs After) — memoized
 // =============================================================================
-const DistributionHistograms = ({ histogramsBefore, histogramsAfter }) => {
+const DistributionHistograms = React.memo(({ histogramsBefore, histogramsAfter }) => {
   const [selectedIdx, setSelectedIdx] = useState(0);
 
   // Build a unified column list
@@ -134,8 +135,8 @@ const DistributionHistograms = ({ histogramsBefore, histogramsAfter }) => {
     return data;
   }, [beforeHist, afterHist]);
 
-  const prev = () => setSelectedIdx(i => Math.max(0, i - 1));
-  const next = () => setSelectedIdx(i => Math.min(columnNames.length - 1, i + 1));
+  const prev = useCallback(() => setSelectedIdx(i => Math.max(0, i - 1)), []);
+  const next = useCallback(() => setSelectedIdx(i => Math.min(columnNames.length - 1, i + 1)), [columnNames.length]);
 
   if (columnNames.length === 0) return null;
 
@@ -177,12 +178,12 @@ const DistributionHistograms = ({ histogramsBefore, histogramsAfter }) => {
       </div>
     </div>
   );
-};
+});
 
 // =============================================================================
-// SUB-COMPONENT: Correlation Matrix Heatmap
+// SUB-COMPONENT: Correlation Matrix Heatmap — memoized
 // =============================================================================
-const CorrelationHeatmap = ({ dataBefore, dataAfter }) => {
+const CorrelationHeatmap = React.memo(({ dataBefore, dataAfter }) => {
   const [showAfter, setShowAfter] = useState(false);
   const active = showAfter ? dataAfter : dataBefore;
 
@@ -196,7 +197,6 @@ const CorrelationHeatmap = ({ dataBefore, dataAfter }) => {
     if (val === null || val === undefined) return 'rgba(30, 41, 59, 0.5)';
     const v = Math.max(-1, Math.min(1, val));
     if (v >= 0) {
-      const intensity = Math.round(v * 200);
       return `rgba(239, ${68 + (1 - v) * 100}, 68, ${0.15 + v * 0.75})`;
     } else {
       const absV = Math.abs(v);
@@ -223,7 +223,7 @@ const CorrelationHeatmap = ({ dataBefore, dataAfter }) => {
         </div>
       </div>
       <p className="viz-card-subtitle">Pearson correlation between {cols.length} numeric features</p>
-      <div className="corr-scroll-container">
+      <div className="corr-scroll-container" style={{ willChange: 'transform' }}>
         <div className="corr-grid" style={{
           gridTemplateColumns: `100px repeat(${cols.length}, 1fr)`,
         }}>
@@ -262,6 +262,242 @@ const CorrelationHeatmap = ({ dataBefore, dataAfter }) => {
       </div>
     </div>
   );
+});
+
+
+// =============================================================================
+// PDF Report Generator
+// =============================================================================
+const generatePDFReport = async (analysisData, filename, jobId) => {
+  // Dynamic import to avoid bundling jspdf for users who never download PDFs
+  const { jsPDF } = await import('jspdf');
+  // jspdf-autotable: use the function form (not plugin form) for dynamic imports
+  const autoTableModule = await import('jspdf-autotable');
+  const autoTable = autoTableModule.default || autoTableModule.autoTable || autoTableModule;
+
+  const doc = new jsPDF('p', 'mm', 'a4');
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const margin = 14;
+  let y = 20;
+
+  // --- Helper for adding page breaks ---
+  const checkPageBreak = (neededHeight = 30) => {
+    if (y + neededHeight > doc.internal.pageSize.getHeight() - 20) {
+      doc.addPage();
+      y = 20;
+    }
+  };
+
+  // --- Title ---
+  doc.setFillColor(10, 14, 26);
+  doc.rect(0, 0, pageWidth, 45, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(22);
+  doc.setTextColor(59, 130, 246);
+  doc.text('DataSpark', margin, y);
+  y += 8;
+  doc.setFontSize(14);
+  doc.setTextColor(255, 255, 255);
+  doc.text('Analysis Report', margin, y);
+  y += 8;
+  doc.setFontSize(10);
+  doc.setTextColor(148, 163, 184);
+  doc.text(`File: ${filename}  |  Job ID: ${jobId || 'N/A'}`, margin, y);
+  y += 6;
+  doc.text(`Generated: ${new Date().toLocaleString()}`, margin, y);
+  y += 14;
+
+  // --- Summary Section ---
+  const { before = [], after = [] } = analysisData || {};
+  const totalMissingBefore = before.reduce((acc, col) => acc + col.missing, 0);
+  const totalMissingAfter = after.reduce((acc, col) => acc + col.missing, 0);
+  const totalOutliersBefore = before.reduce((acc, col) => acc + col.outliers, 0);
+  const totalOutliersAfter = after.reduce((acc, col) => acc + col.outliers, 0);
+
+  doc.setFontSize(14);
+  doc.setTextColor(59, 130, 246);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Executive Summary', margin, y);
+  y += 8;
+
+  doc.setFontSize(10);
+  doc.setTextColor(50, 50, 50);
+  doc.setFont('helvetica', 'normal');
+
+  const summaryData = [
+    ['Metric', 'Before', 'After', 'Change'],
+    ['Missing Values', totalMissingBefore.toLocaleString(), totalMissingAfter.toLocaleString(),
+      totalMissingBefore > 0
+        ? `${((totalMissingBefore - totalMissingAfter) / totalMissingBefore * 100).toFixed(1)}% ↓`
+        : 'No change'],
+    ['Outliers', totalOutliersBefore.toLocaleString(), totalOutliersAfter.toLocaleString(),
+      totalOutliersBefore > 0
+        ? `${((totalOutliersBefore - totalOutliersAfter) / totalOutliersBefore * 100).toFixed(1)}% ↓`
+        : 'No change'],
+    ['Columns (Before)', String(before.length), '', ''],
+    ['Columns (After)', '', String(after.length), ''],
+  ];
+
+  autoTable(doc, {
+    startY: y,
+    head: [summaryData[0]],
+    body: summaryData.slice(1),
+    theme: 'grid',
+    headStyles: {
+      fillColor: [59, 130, 246],
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+      halign: 'center',
+    },
+    styles: {
+      fontSize: 9,
+      cellPadding: 4,
+      halign: 'center',
+    },
+    alternateRowStyles: { fillColor: [245, 247, 250] },
+    margin: { left: margin, right: margin },
+  });
+
+  y = (doc.lastAutoTable ? doc.lastAutoTable.finalY : (doc.previousAutoTable ? doc.previousAutoTable.finalY : y + 30)) + 12;
+
+  // --- Before Stats Table ---
+  checkPageBreak(40);
+  doc.setFontSize(14);
+  doc.setTextColor(59, 130, 246);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Column Statistics — Before Processing', margin, y);
+  y += 6;
+
+  const beforeTableData = before.map(col => [
+    col.name,
+    col.missing.toLocaleString(),
+    col.outliers.toLocaleString(),
+    col.mean !== null && col.mean !== undefined ? Number(col.mean).toFixed(2) : '—',
+    col.median !== null && col.median !== undefined ? Number(col.median).toFixed(2) : '—',
+  ]);
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Column', 'Missing', 'Outliers', 'Mean', 'Median']],
+    body: beforeTableData,
+    theme: 'striped',
+    headStyles: {
+      fillColor: [239, 68, 68],
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+      halign: 'center',
+    },
+    styles: { fontSize: 8, cellPadding: 3, halign: 'center' },
+    columnStyles: { 0: { halign: 'left', fontStyle: 'bold' } },
+    alternateRowStyles: { fillColor: [255, 245, 245] },
+    margin: { left: margin, right: margin },
+  });
+
+  y = (doc.lastAutoTable ? doc.lastAutoTable.finalY : (doc.previousAutoTable ? doc.previousAutoTable.finalY : y + 30)) + 12;
+
+  // --- After Stats Table ---
+  checkPageBreak(40);
+  doc.setFontSize(14);
+  doc.setTextColor(16, 185, 129);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Column Statistics — After Processing', margin, y);
+  y += 6;
+
+  const afterTableData = after.map(col => [
+    col.name,
+    col.missing.toLocaleString(),
+    col.outliers.toLocaleString(),
+    col.mean !== null && col.mean !== undefined ? Number(col.mean).toFixed(2) : '—',
+    col.median !== null && col.median !== undefined ? Number(col.median).toFixed(2) : '—',
+  ]);
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Column', 'Missing', 'Outliers', 'Mean', 'Median']],
+    body: afterTableData,
+    theme: 'striped',
+    headStyles: {
+      fillColor: [16, 185, 129],
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+      halign: 'center',
+    },
+    styles: { fontSize: 8, cellPadding: 3, halign: 'center' },
+    columnStyles: { 0: { halign: 'left', fontStyle: 'bold' } },
+    alternateRowStyles: { fillColor: [240, 253, 244] },
+    margin: { left: margin, right: margin },
+  });
+
+  y = (doc.lastAutoTable ? doc.lastAutoTable.finalY : (doc.previousAutoTable ? doc.previousAutoTable.finalY : y + 30)) + 12;
+
+  // --- Detailed Change Log ---
+  checkPageBreak(40);
+  doc.setFontSize(14);
+  doc.setTextColor(59, 130, 246);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Per-Column Change Log', margin, y);
+  y += 6;
+
+  const changeLogData = before
+    .map(bCol => {
+      const aCol = after.find(a => a.name === bCol.name);
+      if (!aCol) return [bCol.name, 'DROPPED', '—', '—', '—'];
+      const missDelta = bCol.missing - aCol.missing;
+      const outDelta = bCol.outliers - aCol.outliers;
+      return [
+        bCol.name,
+        missDelta > 0 ? `${missDelta} fixed` : missDelta < 0 ? `${Math.abs(missDelta)} added` : 'No change',
+        outDelta > 0 ? `${outDelta} handled` : outDelta < 0 ? `${Math.abs(outDelta)} added` : 'No change',
+        aCol.mean !== null && aCol.mean !== undefined ? Number(aCol.mean).toFixed(2) : '—',
+        aCol.median !== null && aCol.median !== undefined ? Number(aCol.median).toFixed(2) : '—',
+      ];
+    });
+
+  // Include new columns added (e.g. one-hot encoded)
+  const newCols = after.filter(aCol => !before.find(b => b.name === aCol.name));
+  newCols.forEach(aCol => {
+    changeLogData.push([
+      aCol.name + ' (NEW)',
+      '—',
+      aCol.outliers.toLocaleString(),
+      aCol.mean !== null && aCol.mean !== undefined ? Number(aCol.mean).toFixed(2) : '—',
+      aCol.median !== null && aCol.median !== undefined ? Number(aCol.median).toFixed(2) : '—',
+    ]);
+  });
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Column', 'Missing Delta', 'Outlier Delta', 'Final Mean', 'Final Median']],
+    body: changeLogData,
+    theme: 'grid',
+    headStyles: {
+      fillColor: [139, 92, 246],
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+      halign: 'center',
+    },
+    styles: { fontSize: 8, cellPadding: 3, halign: 'center' },
+    columnStyles: { 0: { halign: 'left', fontStyle: 'bold' } },
+    alternateRowStyles: { fillColor: [245, 243, 255] },
+    margin: { left: margin, right: margin },
+  });
+
+  y = (doc.lastAutoTable ? doc.lastAutoTable.finalY : (doc.previousAutoTable ? doc.previousAutoTable.finalY : y + 30)) + 16;
+
+  // --- Footer on last page ---
+  checkPageBreak(20);
+  doc.setDrawColor(200, 200, 200);
+  doc.line(margin, y, pageWidth - margin, y);
+  y += 6;
+  doc.setFontSize(8);
+  doc.setTextColor(148, 163, 184);
+  doc.setFont('helvetica', 'italic');
+  doc.text('Generated by DataSpark AI Preprocessing Platform', margin, y);
+  doc.text(`Report timestamp: ${new Date().toISOString()}`, pageWidth - margin, y, { align: 'right' });
+
+  // --- Save ---
+  const baseName = filename.replace(/\.csv$/i, '');
+  doc.save(`DataSpark_Report_${baseName}.pdf`);
 };
 
 
@@ -274,6 +510,7 @@ const AnalysisDashboard = () => {
   const { jobId: urlJobId } = useParams();
   const { token } = useAuth();
   const [isDownloading, setIsDownloading] = useState(false);
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [historicalLoading, setHistoricalLoading] = useState(false);
   const [historicalError, setHistoricalError] = useState('');
   const [fetchedData, setFetchedData] = useState(null);
@@ -351,7 +588,7 @@ const AnalysisDashboard = () => {
     }
   }, [analysisData, historicalLoading, urlJobId, navigate]);
 
-  const downloadFile = async () => {
+  const downloadFile = useCallback(async () => {
     if (!jobId) return;
     setIsDownloading(true);
     try {
@@ -397,7 +634,18 @@ const AnalysisDashboard = () => {
     } finally {
       setIsDownloading(false);
     }
-  };
+  }, [jobId, token, filename]);
+
+  const handleDownloadPDF = useCallback(async () => {
+    setIsGeneratingPDF(true);
+    try {
+      await generatePDFReport(analysisData, filename, jobId);
+    } catch (error) {
+      console.error("PDF generation error:", error);
+    } finally {
+      setIsGeneratingPDF(false);
+    }
+  }, [analysisData, filename, jobId]);
 
   if (historicalLoading || (!analysisData && (urlJobId || historicalError))) {
     return (
@@ -455,7 +703,11 @@ const AnalysisDashboard = () => {
               <CornerDownLeft size={20} />
               Process Another File
             </Link>
-            <button onClick={downloadFile} disabled={isDownloading} className="btn btn-primary">
+            <button onClick={handleDownloadPDF} disabled={isGeneratingPDF} className="btn btn-accent" id="download-pdf-btn">
+              {isGeneratingPDF ? <Loader size={20} className="spinner" /> : <FileText size={20} />}
+              {isGeneratingPDF ? 'Generating...' : 'Download Report (PDF)'}
+            </button>
+            <button onClick={downloadFile} disabled={isDownloading} className="btn btn-primary" id="download-csv-btn">
               {isDownloading ? <Loader size={20} className="spinner" /> : <Download size={20} />}
               {isDownloading ? 'Downloading...' : 'Download Cleaned CSV'}
             </button>
@@ -490,7 +742,7 @@ const AnalysisDashboard = () => {
 
         {/* === Feature 2: Advanced Visualizations === */}
         {vizData && (
-          <div className="viz-section">
+          <div className="viz-section" style={{ contentVisibility: 'auto', containIntrinsicSize: '0 1200px' }}>
             <h2 className="viz-section-title">Advanced Visual Analysis</h2>
 
             {/* Missing Values Heatmap */}
