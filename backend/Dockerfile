@@ -1,10 +1,6 @@
 # ==============================================================================
 # Backend Dockerfile — Multi-stage production build
 # ==============================================================================
-# WHY multi-stage? The builder stage installs all build dependencies (gcc, etc.)
-# needed by some pip packages. The final stage copies only the installed packages,
-# resulting in a much smaller image (~200MB vs ~800MB).
-# ==============================================================================
 
 FROM python:3.11-slim AS builder
 
@@ -31,6 +27,9 @@ COPY . .
 
 # Create directories for file storage
 RUN mkdir -p uploaded_csv_files uploaded_image_datasets processed_csv_files
+
+# Download the Spacy model here in the final stage where spacy is available!
+RUN python -m spacy download en_core_web_lg
 
 # Expose the FastAPI port
 EXPOSE 8000
