@@ -28,7 +28,7 @@ from starlette.responses import StreamingResponse
 
 # --- Database & SQLAlchemy ---
 from sqlalchemy.orm import Session, sessionmaker
-from database.config import get_db, check_database_connection, SessionLocal
+from database.config import get_db, check_database_connection, SessionLocal, init_database
 from database.operations import DatabaseOperations
 from database.auth_operations import AuthOperations
 from database.models import User as UserModel, ImageDatasetJob, FileUpload, DataProcessingJob, AnalysisResult
@@ -97,6 +97,10 @@ async def startup_event():
 
     # JWT mode
     logger.info(f"JWT auth configured. Algorithm: {JWT_ALGORITHM}, Access token TTL: {JWT_ACCESS_TOKEN_EXPIRE_MINUTES}min")
+
+    # Ensure tables are created automatically (useful for Render deployment)
+    logger.info("Initializing database tables...")
+    init_database()
 
     if not check_database_connection():
         logger.critical("Database connection failed! Please run `python backend/create_db.py`")
