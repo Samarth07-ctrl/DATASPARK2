@@ -113,7 +113,9 @@ async def startup_event():
 security = HTTPBearer()
 
 origins = [
-    "*"
+    "http://localhost:3000",
+    "http://localhost:8000",
+    "https://dataspark2-frontend.onrender.com"
 ]
 
 app.add_middleware(
