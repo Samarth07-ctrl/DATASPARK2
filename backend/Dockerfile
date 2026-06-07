@@ -29,7 +29,7 @@ COPY . .
 RUN mkdir -p uploaded_csv_files uploaded_image_datasets processed_csv_files
 
 # Download the Spacy model here in the final stage where spacy is available!
-RUN python -m spacy download en_core_web_lg
+RUN python -m spacy download en_core_web_sm
 
 # Expose the FastAPI port
 EXPOSE 8000

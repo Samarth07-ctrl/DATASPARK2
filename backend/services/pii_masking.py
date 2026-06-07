@@ -37,11 +37,21 @@ def _ensure_presidio():
 
     try:
         from presidio_analyzer import AnalyzerEngine
+        from presidio_analyzer.nlp_engine import NlpEngineProvider
         from presidio_anonymizer import AnonymizerEngine
-        _analyzer = AnalyzerEngine()
+        
+        # Configure Presidio to use the small Spacy model to save memory
+        configuration = {
+            "nlp_engine_name": "spacy",
+            "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}],
+        }
+        provider = NlpEngineProvider(nlp_configuration=configuration)
+        nlp_engine = provider.create_engine()
+        
+        _analyzer = AnalyzerEngine(nlp_engine=nlp_engine, supported_languages=["en"])
         _anonymizer = AnonymizerEngine()
         _PRESIDIO_AVAILABLE = True
-        logger.info("Presidio PII masking engine initialized successfully.")
+        logger.info("Presidio PII masking engine initialized successfully with en_core_web_sm.")
         return True
     except Exception as e:
         logger.warning(f"Presidio could not be initialized: {e}. PII masking disabled.")
